@@ -7,7 +7,6 @@ from urllib.parse import unquote_plus
 
 
 
-SKIP_KINDS = ['wiki', 'discussion']  # edX content kinds not suported in Kolibri
 
 
 # HIGH LEVEL API
@@ -38,12 +37,11 @@ def parse_xml_file(coursedir, kind, name, ext='xml'):
     and return the json tree representation.
     References are not resolved --- see `parse_xml_file_refusive` for that.
     """
-
     # Build path to XML file
-    path = coursedir
     if kind:
-        path = os.path.join(path, kind)
-    path = os.path.join(path, name + '.' + ext)
+        path = os.path.join(coursedir, kind, name + '.' + ext)
+    else:
+        path = os.path.join(coursedir, name + '.' + ext)
     if not os.path.exists(path):
         raise ValueError('XML file not found: ' + path)
     
@@ -73,17 +71,14 @@ def parse_xml_file(coursedir, kind, name, ext='xml'):
         child_ref = {
             'kind': kind,
         }
-        if kind in SKIP_KINDS:
-            print('skipping', kind, str(child).replace('\n', ' ')[0:40])
-
+        if kind == 'wiki':
+            child_ref['slug'] = child.attrs['slug']
         elif kind == 'html':
             child_ref['url_name'] = child.attrs['url_name']
             child_ref['ext'] = 'html'
-            data['children'].append(child_ref)
-
         else:
             child_ref['url_name'] = child.attrs['url_name']
-            data['children'].append(child_ref)
+        data['children'].append(child_ref)
 
     return data
 
@@ -106,6 +101,9 @@ def parse_xml_file_refusive(coursedir, kind, name, ext='xml'):
         elif child_kind == 'html':
             htmldata = parse_html_file(coursedir, child['kind'], child['url_name'], ext='html')
             new_children.append(htmldata)
+        elif child_kind == 'video':
+            videodata = parse_video_file(coursedir, child['kind'], child['url_name'])
+            new_children.append(videodata)
         elif child_kind == 'problem':
             problemdata = parse_problem_file(coursedir, child['kind'], child['url_name'], ext='xml')
             if problemdata:
@@ -126,14 +124,11 @@ def parse_html_file(coursedir, kind, name, ext='html'):
     and return the json tree representation.
     """
     # Build path to XML file
-    path = coursedir
-    if kind:
-        path = os.path.join(path, kind)
-    path = os.path.join(path, name + '.' + ext)
+    path = os.path.join(coursedir, kind, name + '.' + ext)
     if not os.path.exists(path):
         raise ValueError('HTML file not found: ' + path)
     
-    # Load XML
+    # Read HTML
     html = open(path, 'r').read()
     
     # JSON data object
@@ -144,52 +139,38 @@ def parse_html_file(coursedir, kind, name, ext='html'):
         'children': [],
     }
 
-    # Hanlde special case of HTML file with downloadable resources
-
-    is_resources_folder_candidate = False       # True if we find links to s3.amazonaws.com
-    seen_tuple = None                           # save (bucket_url, bucket_path, activity_ref) links seen
-    is_resources_folder = False                 # True if all links are to the same seen_tuple
-
     doc = BeautifulSoup(html, "html5lib")
     links = doc.find_all('a')
-    for link in links:
-        if 'href' in link.attrs and 's3.amazonaws.com' in link['href']:
-            is_resources_folder_candidate = True
-            # print('Found resources_folder_candidate')
-        else:
-            # print('No href in ', link)
-            pass
 
-        if is_resources_folder_candidate:
-            if 'href' in link.attrs and 's3.amazonaws.com' in link['href']:
-                url_parts = link['href'].split('/')
-                bucket_url = '/'.join(url_parts[0:4])
-                bucket_path = '/'.join(url_parts[4:-2])
-                activity_ref = unquote_plus(url_parts[-2])
-                this_tuple = (bucket_url, bucket_path, activity_ref)
-                if seen_tuple is None:
-                    seen_tuple = this_tuple
-                else:
-                    if seen_tuple == this_tuple:
-                        is_resources_folder = True
-                    else:
-                        is_resources_folder = False
-            else:
-                # print('another link found', link)
-                pass
-
-    if is_resources_folder:
-        data['activity'] = dict(
-            kind = 'resources_folder',
-            bucket_url = seen_tuple[0],
-            bucket_path = seen_tuple[1],
-            activity_ref = seen_tuple[2],
-            entrypoint = None,
-            url=link['href'],
-        )
-        # print('Found resources_folder', data['activity'])
     return data
 
+
+
+
+
+
+def parse_video_file(coursedir, kind, name, ext='xml'):
+    """
+    Parse the Video XML file at {coursedir}/{kind}/{name}.{ext}
+    and return the json tree representation.
+    """
+    # Build path to XML file
+    path = os.path.join(coursedir, kind, name + '.' + ext)
+    if not os.path.exists(path):
+        raise ValueError('Video XML file not found: ' + path)
+
+    # Load XML
+    xml = open(path, 'r').read()
+    print(xml)
+
+    # JSON data object
+    data = {
+        'kind': kind,
+        'url_name': name,
+        'content': xml,
+        'children': [],
+    }
+    return data
 
 
 def parse_problem_file(coursedir, kind, name, ext='xml'):
@@ -198,10 +179,7 @@ def parse_problem_file(coursedir, kind, name, ext='xml'):
     and return the json tree representation.
     """
     # Build path to XML file
-    path = coursedir
-    if kind:
-        path = os.path.join(path, kind)
-    path = os.path.join(path, name + '.' + ext)
+    path = os.path.join(coursedir, kind, name + '.' + ext)
     if not os.path.exists(path):
         raise ValueError('HTML file not found: ' + path)
 
@@ -217,14 +195,23 @@ def parse_problem_file(coursedir, kind, name, ext='xml'):
     data['content'] = xml
     return data
 
+def translate_to_en(text, source_language=None):
+    from google.cloud import translate
+    translate_client = translate.Client()
+    response = translate_client.translate(title, source_language=source_language, target_language='en')
+    return response['translatedText']
 
-def print_course(course):
+
+def print_course(course, translate_from=None):
     """
     Display course tree hierarchy for debugging purposes.
     """
     def print_subtree(subtree, indent=0):
         title = subtree['display_name'] if 'display_name' in subtree else ''
         
+        if translate_from:
+            title_en = translate_to_en(title, source_language=translate_from)
+            title = title + ' ' + title_en
         extra = ''
         if 'url_name' in subtree:
             extra += ' url_name=' + subtree['url_name']
