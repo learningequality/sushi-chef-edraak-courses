@@ -161,7 +161,7 @@ def parse_video_file(coursedir, kind, name, ext='xml'):
 
     # Load XML
     xml = open(path, 'r').read()
-    print(xml)
+    # print(xml)
 
     # JSON data object
     data = {
@@ -195,10 +195,42 @@ def parse_problem_file(coursedir, kind, name, ext='xml'):
     data['content'] = xml
     return data
 
+
+import shelve
+from functools import wraps
+from time import time
+import struct
+import io
+
+def cached(f=None, expire=None):
+    if f is None:
+        cached.expire = expire
+        return cached
+    c = shelve.open( "/tmp/cache-%s-%s"%(os.getlogin(),f.__name__), 'c', -1 )
+    @wraps(f)
+    def wrapper( *args, **kwargs ):
+        h = str(args)+str(kwargs)
+        try:
+            result, created = c[h]
+            if cached.expire and time()-created > cached.expire:
+                print('expired')
+                raise KeyError
+        except KeyError:
+            print('calling f')
+            result = f( *args, **kwargs )
+            c[h] = result, time()
+        except TypeError:
+            print('typeerror')
+            result = f( *args, **kwargs )
+        return result
+    return wrapper
+cached.expire = None
+
+@cached(expire=5000)
 def translate_to_en(text, source_language=None):
     from google.cloud import translate
     translate_client = translate.Client()
-    response = translate_client.translate(title, source_language=source_language, target_language='en')
+    response = translate_client.translate(text, source_language=source_language, target_language='en')
     return response['translatedText']
 
 
