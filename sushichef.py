@@ -21,7 +21,7 @@ LOGGER.setLevel(logging.INFO)
 
 
 from libedx import extract_course_tree
-
+from libedx import translate_to_en
 
 DEBUG_MODE = True
 
@@ -55,15 +55,22 @@ TITLES_TO_DROP = [
     'تابعونا على مواقع التواصل الاجتماعي',   # Follow us on social media
     'إستبيان الانتهاء من المساق',  # Course completion questionnaire
     'استبيان نهاية المساق',       # End of course questionnaire
-    
+]
+
+EDRAAK_DROP_ICONS = [
+    '/static/lightbulb.jpg',
+    '/static/bald22.jpg',
+    '/static/mic.png',
+    '/static/exam.jpg',
 ]
 
 
 
 
 
-# TREE FUNCTIONS FOR PARSING EDRAAK COURSES
+# CLEAN, PRUNE, AND PROCESS TREE
 ################################################################################
+
 
 def guess_vertical_type(vertical):
     children_kinds = set([child['kind'] for child in vertical['children']])
@@ -84,10 +91,19 @@ def guess_vertical_type(vertical):
     return None
 
 
-def clean_subtree(subtree):
+def clean_subtree(subtree, coursedir):
     kind = subtree['kind']
+    title = subtree['display_name'] if 'display_name' in subtree else ''
+    # print(kind, title, subtree.get('url_name', ''))
     if kind == 'video':
         subtree = process_video(subtree)
+    if kind == 'html':
+        # check if downloadable resources HTML div first
+        resources = extract_downloadable_resouces_from_html_item(subtree, coursedir=coursedir)
+        subtree['downloadable_resources'] = resources
+        if not resources:
+            text = extract_text_from_html_item(subtree, translate_from='ar')
+            subtree['text'] = text
 
     # Filter children
     new_children = []
@@ -112,12 +128,31 @@ def clean_subtree(subtree):
                     print_course(child, translate_from='ar')
                     raise ValueError('unrecognized vertical type...')
 
+                elif vertical_type == 'discussion_vertical':
+                    continue
+
+                elif vertical_type == 'learning_objectives_vertical':
+                    htmlgrandchildren = child['children']
+                    htmlgrandchild = htmlgrandchildren[0]
+                    text = extract_text_from_html_item(htmlgrandchild, translate_from='ar')
+                    subtree['description'] = text
+                    if len(htmlgrandchildren) > 1:
+                        print('skipping', htmlgrandchildren[1:])
+                    continue
+
             # Recurse
-            clean_child = clean_subtree(child)
+            clean_child = clean_subtree(child, coursedir=coursedir)
             new_children.append(clean_child)
     subtree['children'] = new_children
 
     return subtree
+
+
+
+
+
+# TREE FUNCTIONS FOR PARSING EDRAAK COURSES
+################################################################################
 
 
 def process_video(video):
@@ -150,6 +185,151 @@ def process_video(video):
     raise ValueError('Unrecognized video format encountered')
 
 
+
+def extract_downloadable_resouces_from_html_item(item, coursedir):
+    """
+    Extracts the resource links from an edX HTML content item.
+    Returns:
+        [
+            {
+                'url': 'https://s3.amazonaws.com/hp-life-content/.../Hoja+de+trabajo.docx',
+                'ext': 'docx',
+                'filename': 'Hoja de trabajo.docx',
+                'title': 'Hoja de trabajo',
+                'link_html': '<a href={href} ...><othertags...>{title}</a>''
+            },
+            ...
+        ]
+    """
+    resources = []
+    assert item['kind'] == 'html'
+    html = item['content']
+    doc = BeautifulSoup(html, 'html5lib')
+
+    # CASE A: PDF in iframe
+    iframe = doc.find('iframe')
+    if iframe:
+        href = iframe['src'].strip()
+        filename = os.path.basename(href)
+        
+        if href.startswith('/static'):
+            relhref = coursedir + href
+            if not os.path.exists(relhref):
+                relhref = relhref.replace('_', ' ')
+                if not os.path.exists(relhref):
+                    print('file not fount at relhref', relhref)
+        else:
+            print('unknown href', href)
+        _, dotext = os.path.splitext(filename)
+        ext = dotext[1:].lower()
+        resource = dict(
+            relhref=relhref,
+            ext=ext,
+            filename=filename,
+            title=iframe.get('title', 'no title'),
+            link_html = str(iframe),
+        )
+        resources.append(resource)
+        return resources
+
+    # CASE B: Links to files
+    links = doc.find_all('a')
+    for link in links:
+        href = link['href'].strip()
+        filename = os.path.basename(href)
+
+        if href.startswith('/static'):
+            relhref = coursedir + href
+            if not os.path.exists(relhref):
+                relhref = relhref.replace('_', ' ')
+                if not os.path.exists(relhref):
+                    print('file not fount at relhref', relhref)
+        else:
+            print('unknown href', href)
+
+        _, dotext = os.path.splitext(filename)
+        ext = dotext[1:].lower()
+        resource = dict(
+            relhref=relhref,
+            ext=ext,
+            filename=filename,
+            title=link.text.strip(),
+            link_html = str(link),
+        )
+        resources.append(resource)
+    return resources
+
+
+
+def extract_text_from_html_item(item, translate_from=None):
+    content = item['content']
+    doc = BeautifulSoup(content, 'html5lib')
+    body = doc.find('body')
+    
+    for img in body.find_all('img'):
+        if img['src'] in EDRAAK_DROP_ICONS:
+            img.decompose()
+
+    page_text = html2text(str(body), bodywidth=0)
+    page_text_lines = page_text.split('\n')
+    non_blank_lines = [line for line in page_text_lines if line.strip()]
+    
+    # Clean and standardize line outputs
+    clean_lines = []
+    for line in non_blank_lines:
+        line = line.replace('**', '').strip()
+        line = line.replace('###', '').strip()
+        line = line.replace('* · ', '•')
+        line = line.replace('·', '•')
+        line = line.replace('●', '•')
+        line = line.replace('*', '•')
+        if line.startswith('_'):
+            line = line[1:]
+        if line.endswith('_'):
+            line = line[:-1]
+        #
+        if line:
+            clean_lines.append(line)
+    text = ' '.join(clean_lines)
+
+    if translate_from:
+        text_en = translate_to_en(text, source_language=translate_from)
+        text = text_en # + ' ' + text
+
+    return text
+
+
+
+
+# def transform_html(content):
+#     """
+#     Transform the HTML markup taken from `content` (str) to file index.html in
+#     a standalone zip file. Return the neceesary metadata as a dict.
+#     """
+#     chef_tmp_dir = 'chefdata/tmp'
+#     webroot = tempfile.mkdtemp(dir=chef_tmp_dir)
+# 
+#     metadata = dict(
+#         kind = 'html_content',
+#         source_id = content[0:30],
+#         zippath = None,  # to be set below
+#     )
+# 
+#     doc = BeautifulSoup(content, 'html5lib')
+#     meta = Tag(name='meta', attrs={'charset':'utf-8'})
+#     doc.head.append(meta)
+#     # TODO: add meta language (in case of right-to-left languages)
+# 
+#     # Writeout new index.html
+#     indexhtmlpath = os.path.join(webroot, 'index.html')
+#     with open(indexhtmlpath, 'w') as indexfilewrite:
+#         indexfilewrite.write(str(doc))
+# 
+#     # Zip it
+#     zippath = create_predictable_zip(webroot)
+#     metadata['zippath'] = zippath
+# 
+#     return metadata
 
 
 
@@ -222,7 +402,7 @@ class EdraakCoursesChef(JsonTreeChef):
         LOGGER.info('in pre_run...')
 
         ricecooker_json_tree = dict(
-            title='Edraak (العربيّة)',          # a humand-readbale title
+            title='Edraak Courses (العربيّة)',          # a humand-readbale title
             source_domain=EDRAAK_COURSES_DOMAIN,       # content provider's domain
             source_id='courses',         # an alphanumeric channel ID
             description=EDRAAK_COURSES_CHANNEL_DESCRIPTION,
@@ -237,10 +417,10 @@ class EdraakCoursesChef(JsonTreeChef):
         write_tree_to_json_tree(json_tree_path, ricecooker_json_tree)
 
 
-    def run(self, args, options):
-        print('in run')
-        self.pre_run(args, options)
-        print('DONE')
+    # def run(self, args, options):
+    #     print('in run')
+    #     self.pre_run(args, options)
+    #     print('DONE')
 
 
 

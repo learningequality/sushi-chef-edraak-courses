@@ -44,7 +44,7 @@ def parse_xml_file(coursedir, kind, name, ext='xml'):
         path = os.path.join(coursedir, name + '.' + ext)
     if not os.path.exists(path):
         raise ValueError('XML file not found: ' + path)
-    
+
     # Load XML
     # print('parsing', path)
     xml = open(path, 'r')
@@ -53,7 +53,7 @@ def parse_xml_file(coursedir, kind, name, ext='xml'):
     assert len(doc_children) == 1, 'Found more than one root element!'
     doc_root = doc_children[0]
     # print(doc)
-    
+
     # JSON data object
     data = {
         'kind': doc_root.name,
@@ -61,7 +61,7 @@ def parse_xml_file(coursedir, kind, name, ext='xml'):
         'children': [],
     }
     data.update(doc_root.attrs)
-    
+
     # Add children as unresoled references
     for child in doc_root.children:
         if type(child) == NavigableString:
@@ -226,7 +226,7 @@ def cached(f=None, expire=None):
     return wrapper
 cached.expire = None
 
-@cached(expire=5000)
+@cached(expire=500000)
 def translate_to_en(text, source_language=None):
     from google.cloud import translate
     translate_client = translate.Client()
@@ -234,18 +234,21 @@ def translate_to_en(text, source_language=None):
     return response['translatedText']
 
 
+
 def print_course(course, translate_from=None):
     """
     Display course tree hierarchy for debugging purposes.
     """
+    EXTRA_FIELDS = ['description', 'youtube_id', 'path', 'text']
+    
     def print_subtree(subtree, indent=0):
         title = subtree['display_name'] if 'display_name' in subtree else ''
         
         if translate_from:
             title_en = translate_to_en(title, source_language=translate_from)
-            title = title + ' ' + title_en
+            title = title_en # + ' ' + title
         extra = ''
-        if 'url_name' in subtree:
+        if 'url_name' in subtree and 'youtube_id' not in subtree and 'path' not in subtree: # and subtree['kind'] != 'html':
             extra += ' url_name=' + subtree['url_name']
         if 'slug' in subtree:
             extra += ' slug=' + subtree['slug']
@@ -254,10 +257,16 @@ def print_course(course, translate_from=None):
             del subtreecopy['children']
             del subtreecopy['certificates']
             extra += ' attrs='+str(subtreecopy)
+        # print all EXTRA_FIELDS
+        for key in EXTRA_FIELDS:
+            if key in subtree:
+                extra += ' {}='.format(key) + subtree[key]
         print('   '*indent, '-', title,  'kind='+subtree['kind'], '\t', extra)
+        if 'downloadable_resources' in subtree:
+            for resource in subtree['downloadable_resources']:
+                print('                  > resouce:', resource['relhref'])
         if 'children' in subtree:
             for child in subtree['children']:
                 print_subtree(child, indent=indent+1)
     print_subtree(course)
     print('\n')
-
