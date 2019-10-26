@@ -190,6 +190,7 @@ def parse_problem_file(coursedir, kind, name, ext='xml'):
     # JSON data object
     data = {
         'kind': kind,
+        'url_name': name,
         'children': [],
     }
     data['content'] = xml

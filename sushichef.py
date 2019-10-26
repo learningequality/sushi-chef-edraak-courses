@@ -54,7 +54,9 @@ TITLES_TO_DROP = [
     'إستبيان التسجيل في المساق',            # Course Registration Questionnaire
     'تابعونا على مواقع التواصل الاجتماعي',   # Follow us on social media
     'إستبيان الانتهاء من المساق',  # Course completion questionnaire
+    'إستبيان إنهاء المساق',       # Course Completion Questionnaire
     'استبيان نهاية المساق',       # End of course questionnaire
+    'مفاجأة المساق',              # Surprise Course (contains only discussion vertical)
 ]
 
 EDRAAK_DROP_ICONS = [
@@ -97,13 +99,16 @@ def clean_subtree(subtree, coursedir):
     # print(kind, title, subtree.get('url_name', ''))
     if kind == 'video':
         subtree = process_video(subtree)
-    if kind == 'html':
+    elif kind == 'html':
         # check if downloadable resources HTML div first
         resources = extract_downloadable_resouces_from_html_item(subtree, coursedir=coursedir)
         subtree['downloadable_resources'] = resources
         if not resources:
             text = extract_text_from_html_item(subtree, translate_from='ar')
             subtree['text'] = text
+    elif kind == 'problem':
+        parse_questions_from_problem(subtree)
+
 
     # Filter children
     new_children = []
@@ -338,26 +343,99 @@ def extract_text_from_html_item(item, translate_from=None):
 
 
 
+# PROBLEMS --> EXERCISE QUESTIONS
+################################################################################
+
+DROP_EXPLANATIONS = [
+    'release of the iPod allowed consumers',
+]
 
 
+def parse_questions_from_problem(problem):
+    assert problem['kind'] == 'problem'
+    xml = problem['content']
+    doc = BeautifulSoup(xml, "xml")
+    problem_els = doc.find_all('problem')
+    assert len(problem_els) == 1, 'found multiple problem elements'
+    problem_el = problem_els[0]
+
+    questions = []
+
+    # A. SINGLE SELECT
+    multiplechoiceresponses = problem_el.find_all('multiplechoiceresponse')
+    for i, multiplechoiceresponse in enumerate(multiplechoiceresponses):
+        
+        question_p = multiplechoiceresponse.find_previous_sibling('p')
+        question_text = question_p.text.strip()
+        question_text = re.sub(' +', ' ', question_text)
+
+        question_dict = dict(
+            question_type=exercises.SINGLE_SELECTION,
+            id=problem['url_name'] + '-' + str(i+1),
+            question=question_text,
+            correct_answer=None,
+            all_answers=[],
+            hints=[],
+        )
+
+        choicegroup = multiplechoiceresponse.find('choicegroup')
+        choices = choicegroup.find_all('choice')
+        for choice in choices:
+            answer_text = choice.text.strip()
+            question_dict['all_answers'].append(answer_text)
+            if choice['correct'] == 'true':
+                question_dict['correct_answer'] = answer_text
+
+        # find solution element if it exists
+        solution_el = multiplechoiceresponse.findNext('solution')
+        if solution_el:
+            solution_text = solution_el.text.strip()
+            if not any(de in solution_text for de in DROP_EXPLANATIONS):
+                question_dict['hints'].append(solution_text)
+        
+        questions.append(question_dict)
 
 
+    # B. MULTIPLE SELECT
+    choiceresponses  = problem_el.find_all('choiceresponse')
+    for j, choiceresponse in enumerate(choiceresponses):
 
+        question_p = choiceresponse.find_previous_sibling('p')
+        question_text = question_p.text.strip()
+        question_text = re.sub(' +', ' ', question_text)
 
+        question_dict = dict(
+            question_type=exercises.MULTIPLE_SELECTION,
+            id=problem['url_name'] + '-' + str(j+1),
+            question=question_text,
+            correct_answers=[],
+            all_answers=[],
+            hints=[],
+        )
 
+        checkboxgroup = choiceresponse.find('checkboxgroup')
+        choices = checkboxgroup.find_all('choice')
+        for choice in choices:
+            answer_text = choice.text.strip()
+            question_dict['all_answers'].append(answer_text)
+            if choice['correct'] == 'true':
+                question_dict['correct_answers'].append(answer_text)
 
+        # find solution element if it exists
+        solution_el = choiceresponse.findNext('solution')
+        if solution_el:
+            solution_text = solution_el.text.strip()
+            if not any(de in solution_text for de in DROP_EXPLANATIONS):
+                question_dict['hints'].append(solution_text)
 
+        questions.append(question_dict)
 
+    if not questions:
+        print(problem)
+        raise ValueError('Parsing error -- no questoins found in this problem')
 
-
-
-
-
-
-
-
-
-
+    problem['questions'] = questions
+    return problem
 
 
 
