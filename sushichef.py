@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 from bs4 import BeautifulSoup
 from bs4.element import NavigableString
+import copy
 import json
 from html2text import html2text
 import os
@@ -412,7 +413,7 @@ def parse_questions_from_problem(problem):
         # find solution element if it exists
         solution_el = multiplechoiceresponse.findNext('solution')
         if solution_el:
-            solution_text = solution_el.text.strip()
+            solution_text = solution_el.text.replace('Explanation', '').strip()
             if not any(de in solution_text for de in DROP_EXPLANATIONS):
                 question_dict['hints'].append(solution_text)
         
@@ -446,7 +447,7 @@ def parse_questions_from_problem(problem):
         # find solution element if it exists
         solution_el = choiceresponse.findNext('solution')
         if solution_el:
-            solution_text = solution_el.text.strip()
+            solution_text = solution_el.text.replace('Explanation', '').strip()
             if not any(de in solution_text for de in DROP_EXPLANATIONS):
                 question_dict['hints'].append(solution_text)
 
@@ -542,43 +543,54 @@ def transform_tree(clean_tree, coursedir):
 
         for sequential in chapter['children']:
 
-            children_vertical_types = set([guess_vertical_type(v) for v in sequential['children']])
-
+            # SPECIAL CASE: skip empty parent nodes of discussions
             if len(sequential['children']) == 0:
-                # containers of discussions end up as empty `sequential` nodes
                 print('Skipping empty sequential', sequential)
+                continue
 
-            elif all(cvt == 'test_vertical' for cvt in children_vertical_types):
-                # Hoist exam questions up to chapter level
-                verticals = sequential['children']
-                assert len(verticals) == 1, 'too many verticals found in test sequential ' + str(sequential)
-                vertical = verticals[0]
-                exercise_dict = transform_vertical_to_exercise(vertical)
-                chapter_dict['children'].append(exercise_dict)
+            # DEFAULT CASE: process as regular topic node
+            sequential_dict = dict(
+                kind=content_kinds.TOPIC,
+                title=sequential['display_name'],
+                source_id=sequential['url_name'],
+                description=sequential.get('description', ''),
+                language=getlang('ar').code,
+                license=EDRAAK_LICENSE,
+                children=[],
+            )
+            chapter_dict['children'].append(sequential_dict)
 
+            for vertical in sequential['children']:
+                vertical_type = guess_vertical_type(vertical)
+
+                if vertical_type in ['knowledge_check_vertical', 'test_vertical']:
+                    exercise_dict = transform_vertical_to_exercise(vertical)
+                    sequential_dict['children'].append(exercise_dict)
+
+                else:
+                    print('skipping', vertical_type, vertical['url_name'])
+
+    flattened_course_dict = flatten_transformed_tree(course_dict)
+    return flattened_course_dict
+
+
+def flatten_transformed_tree(course_dict):
+    """
+    If sequential > vertical with same title, replace sequential by vertical child.
+    """
+    new_course_dict = copy.copy(course_dict)
+    if 'children' in new_course_dict:
+        del new_course_dict['children']
+        new_children = []
+        for child in course_dict['children']:
+            grandchildren = child.get('children', None)
+            if grandchildren and len(grandchildren) == 1 and child['title'] == grandchildren[0]['title']:
+                new_children.append(grandchildren[0])
             else:
-                # Process as regular folder
-                sequential_dict = dict(
-                    kind=content_kinds.TOPIC,
-                    title=sequential['display_name'],
-                    source_id=sequential['url_name'],
-                    description=sequential.get('description', ''),
-                    language=getlang('ar').code,
-                    license=EDRAAK_LICENSE,
-                    children=[],
-                )
-                chapter_dict['children'].append(sequential_dict)
-
-                for vertical in sequential['children']:
-                    vertical_type = guess_vertical_type(vertical)
-                    if vertical_type in ['knowledge_check_vertical', 'test_vertical']:
-                        exercise_dict = transform_vertical_to_exercise(vertical)
-                        sequential_dict['children'].append(exercise_dict)
-
-                    else:
-                        print('skipping', vertical_type, vertical['url_name'])
-
-    return course_dict
+                new_child = flatten_transformed_tree(child)
+                new_children.append(new_child)
+        new_course_dict['children'] = new_children
+    return new_course_dict
 
 
 # DEBUG TREE PRINTING
