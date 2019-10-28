@@ -34,6 +34,10 @@ EDRAAK_COURSES_DOMAIN = 'edraak.org'
 EDRAAK_COURSES_CHANNEL_DESCRIPTION = """Sample courses from the Edraak contrinuing education selection."""
 EDRAAK_LICENSE = get_license(licenses.CC_BY_NC_SA, copyright_holder='Edraak').as_dict()
 
+ORIGINAL_TREES_DIR = os.path.join('chefdata', 'originaltrees')
+CLEAN_TREES_DIR = os.path.join('chefdata', 'cleantrees')
+TRANSFORMED_TREES_DIR = os.path.join('chefdata', 'transformedtrees')
+
 COURSES_DIR = 'chefdata/Courses'
 SKIP_KINDS = ['wiki']   # edX content kinds not suported in Kolibri
 EDRAAK_STRINGS = {
@@ -41,8 +45,14 @@ EDRAAK_STRINGS = {
         'الأهداف التعليمية',
         'الاهداف التعليمية'
     ],
-    "knowledge_check": 'التحقق من المعرفة',
+    "knowledge_check": [
+        'التحقق من المعرفة',
+    ],
+    "course_plan": [
+        'خطة المساق',       # could be a sequential with a PDF resouce or HTML
+    ]
 }
+
 TITLES_TO_DROP = [
     'التسجيل في المساق',       # Registration in the course
     'كيفية استخدام المنصة',    # How to use the platform
@@ -57,6 +67,8 @@ TITLES_TO_DROP = [
     'إستبيان إنهاء المساق',       # Course Completion Questionnaire
     'استبيان نهاية المساق',       # End of course questionnaire
     'مفاجأة المساق',              # Surprise Course (contains only discussion vertical)
+    # 'قضية للنقاش',                # Issue for discussion
+    # 'إسأل الدكتور أحمد',          # Ask Dr. Ahmed
 ]
 
 EDRAAK_DROP_ICONS = [
@@ -64,6 +76,13 @@ EDRAAK_DROP_ICONS = [
     '/static/bald22.jpg',
     '/static/mic.png',
     '/static/exam.jpg',
+    #
+    '/static/Week1-Progress.png',
+    '/static/Week2-Progress.png',
+    '/static/Week3-Progress.png',
+    '/static/FirstAid-Instructor-question2.png',
+    '/static/FirstAid-Instructor-discussion.png',
+    '/static/rsz_swift_logo_rgb.jpg',
 ]
 
 
@@ -72,7 +91,6 @@ EDRAAK_DROP_ICONS = [
 
 # CLEAN, PRUNE, AND PROCESS TREE
 ################################################################################
-
 
 def guess_vertical_type(vertical):
     children_kinds = set([child['kind'] for child in vertical['children']])
@@ -86,6 +104,9 @@ def guess_vertical_type(vertical):
     title = vertical.get('display_name')
     if title and any(lo in title for lo in EDRAAK_STRINGS['learning_objectives']):
         return 'learning_objectives_vertical'
+
+    if title and any(kc in title for kc in EDRAAK_STRINGS['knowledge_check']):
+        return 'knowledge_check_vertical'
 
     if children_kinds == set(['html']):
         return 'html_vertical'
@@ -124,7 +145,7 @@ def clean_subtree(subtree, coursedir):
             child_title = child['display_name'] if 'display_name' in child else ''
             if any(t in child_title for t in TITLES_TO_DROP):
                 continue
-            
+
             # 3. DROP BASED ON vertical_type
             if child_kind == 'vertical':
                 vertical_type = guess_vertical_type(child)
@@ -274,6 +295,8 @@ def extract_text_from_html_item(item, translate_from=None):
     for img in body.find_all('img'):
         if img['src'] in EDRAAK_DROP_ICONS:
             img.decompose()
+        else:
+            print('found image', img['src'])
 
     page_text = html2text(str(body), bodywidth=0)
     page_text_lines = page_text.split('\n')
@@ -297,9 +320,9 @@ def extract_text_from_html_item(item, translate_from=None):
             clean_lines.append(line)
     text = ' '.join(clean_lines)
 
-    if translate_from:
+    if translate_from and DEBUG_MODE:
         text_en = translate_to_en(text, source_language=translate_from)
-        text = text_en # + ' ' + text
+        text = text_en + ' ' + text
 
     return text
 
@@ -464,12 +487,11 @@ class EdraakCoursesChef(JsonTreeChef):
             basedir = os.path.join(COURSES_DIR, course['name'])
             coursedir = os.path.join(basedir, 'course')
             course_data = extract_course_tree(coursedir)
-            for k, v in course_data.items():
-                if k in ['children', 'certificates', 'pdf_textbooks']:
-                    continue
-                print(k,'=', v)
+            course_id = course_data['course']
+            write_tree_to_json_tree(os.path.join(ORIGINAL_TREES_DIR, course_id+'.json'), course_data)
             # print_course(course_data, translate_from='ar')
-            clean_subtree(course_data)
+            clean_subtree(course_data, coursedir)
+            write_tree_to_json_tree(os.path.join(CLEAN_TREES_DIR, course_id+'.json'), course_data)
             print('\n\n\n')
 
 

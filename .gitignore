@@ -4,6 +4,11 @@ credentials
 chefdata/Exported
 chefdata/Courses
 
+chefdata/originaltrees
+chefdata/cleantrees
+chefdata/transformedtrees
+
+
 notebooks/resources
 notebooks/downloads
 
