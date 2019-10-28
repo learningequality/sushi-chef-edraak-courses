@@ -9,6 +9,7 @@ import re
 import requests
 from urllib.parse import urljoin
 
+
 from le_utils.constants import content_kinds, exercises, file_types, licenses, roles
 from le_utils.constants.languages import getlang  # see also getlang_by_name, getlang_by_alpha2
 from ricecooker.chefs import JsonTreeChef
@@ -80,6 +81,7 @@ EDRAAK_DROP_ICONS = [
     '/static/Week1-Progress.png',
     '/static/Week2-Progress.png',
     '/static/Week3-Progress.png',
+    '/static/FirstAid-Instructor-Video.png',
     '/static/FirstAid-Instructor-question2.png',
     '/static/FirstAid-Instructor-discussion.png',
     '/static/rsz_swift_logo_rgb.jpg',
@@ -93,14 +95,6 @@ EDRAAK_DROP_ICONS = [
 ################################################################################
 
 def guess_vertical_type(vertical):
-    children_kinds = set([child['kind'] for child in vertical['children']])
-    if 'discussion' in children_kinds:
-        return 'discussion_vertical'
-    elif 'video' in children_kinds:
-        return 'video_vertical'
-    elif 'problem' in children_kinds and 'video' not in children_kinds:
-        return 'test_vertical'
-
     title = vertical.get('display_name')
     if title and any(lo in title for lo in EDRAAK_STRINGS['learning_objectives']):
         return 'learning_objectives_vertical'
@@ -108,7 +102,14 @@ def guess_vertical_type(vertical):
     if title and any(kc in title for kc in EDRAAK_STRINGS['knowledge_check']):
         return 'knowledge_check_vertical'
 
-    if children_kinds == set(['html']):
+    children_kinds = set([child['kind'] for child in vertical['children']])
+    if 'discussion' in children_kinds:
+        return 'discussion_vertical'
+    elif 'video' in children_kinds:
+        return 'video_vertical'
+    elif 'problem' in children_kinds and 'video' not in children_kinds:
+        return 'test_vertical'
+    elif children_kinds == set(['html']):
         return 'html_vertical'
 
     return None
@@ -127,8 +128,6 @@ def clean_subtree(subtree, coursedir):
         if not resources:
             text = extract_text_from_html_item(subtree, translate_from='ar')
             subtree['text'] = text
-    elif kind == 'problem':
-        parse_questions_from_problem(subtree)
 
 
     # Filter children
@@ -366,12 +365,13 @@ def extract_text_from_html_item(item, translate_from=None):
 
 
 
-# PROBLEMS --> EXERCISE QUESTIONS
+# PARSE PROBLEMS --> EXERCISE QUESTIONS (leaving node in place)
 ################################################################################
 
 DROP_EXPLANATIONS = [
     'release of the iPod allowed consumers',
 ]
+
 
 
 def parse_questions_from_problem(problem):
@@ -422,7 +422,6 @@ def parse_questions_from_problem(problem):
     # B. MULTIPLE SELECT
     choiceresponses  = problem_el.find_all('choiceresponse')
     for j, choiceresponse in enumerate(choiceresponses):
-
         question_p = choiceresponse.find_previous_sibling('p')
         question_text = question_p.text.strip()
         question_text = re.sub(' +', ' ', question_text)
@@ -461,6 +460,148 @@ def parse_questions_from_problem(problem):
     return problem
 
 
+# TRANSFORM
+################################################################################
+
+def transform_vertical_to_exercise(vertical, parent_title=None, istest=False):
+    """
+    Parse an Edraaak `test_vertical' or `knowledge_check_vertical` to exercise.
+    """
+    if 'children' not in vertical:
+        return None
+
+    description = ''
+    # Extract an optional description from the first html node
+    first_child = vertical['children'][0]
+    if first_child['kind'] == 'html':
+        description = extract_text_from_html_item(first_child, translate_from='ar')
+
+    if parent_title:
+        exercise_title = parent_title + ' ' + vertical['display_name']
+    else:
+        exercise_title = vertical['display_name']
+
+
+    # Exercise node
+    exercise_dict = dict(
+        kind=content_kinds.EXERCISE,
+        title=exercise_title,
+        author='Edraak',
+        source_id=vertical['url_name'],
+        description=description,
+        language=getlang('ar').code,
+        license=EDRAAK_LICENSE,
+        exercise_data={
+            'mastery_model': exercises.M_OF_N,
+            'randomize': False,
+            'm': 5,                   # By default require 3 to count as mastery
+        },
+        # thumbnail=
+        questions=[],
+    )
+
+    for child in vertical['children']:
+        if child['kind'] == 'problem':
+            parsed_problem = parse_questions_from_problem(child)
+            exercise_dict['questions'].extend(parsed_problem['questions'])
+
+    # Update m in case less than 3 quesitons in the exercise
+    if len(exercise_dict['questions']) < 5:
+        exercise_dict['exercise_data']['m'] = len(exercise_dict['questions'])
+
+    return exercise_dict
+
+
+
+
+def transform_tree(clean_tree, coursedir):
+    course_id = clean_tree['course']
+    course_title = clean_tree['display_name']
+    course_thumbnail = os.path.join(coursedir, 'static', clean_tree['course_image'])
+    course_dict = dict(
+        kind=content_kinds.TOPIC,
+        title=course_title,
+        source_id=course_id,
+        description='',
+        language=getlang('ar').code,
+        license=EDRAAK_LICENSE,
+        children=[],
+    )
+
+    for chapter in clean_tree['children']:
+        chapter_dict = dict(
+            kind=content_kinds.TOPIC,
+            title=chapter['display_name'],
+            source_id=chapter['url_name'],
+            description='',
+            language=getlang('ar').code,
+            license=EDRAAK_LICENSE,
+            children=[],
+        )
+        course_dict['children'].append(chapter_dict)
+
+        for sequential in chapter['children']:
+
+            children_vertical_types = set([guess_vertical_type(v) for v in sequential['children']])
+
+            if len(sequential['children']) == 0:
+                # containers of discussions end up as empty `sequential` nodes
+                print('Skipping empty sequential', sequential)
+
+            elif all(cvt == 'test_vertical' for cvt in children_vertical_types):
+                # Hoist exam questions up to chapter level
+                verticals = sequential['children']
+                assert len(verticals) == 1, 'too many verticals found in test sequential ' + str(sequential)
+                vertical = verticals[0]
+                exercise_dict = transform_vertical_to_exercise(vertical)
+                chapter_dict['children'].append(exercise_dict)
+
+            else:
+                # Process as regular folder
+                sequential_dict = dict(
+                    kind=content_kinds.TOPIC,
+                    title=sequential['display_name'],
+                    source_id=sequential['url_name'],
+                    description=sequential.get('description', ''),
+                    language=getlang('ar').code,
+                    license=EDRAAK_LICENSE,
+                    children=[],
+                )
+                chapter_dict['children'].append(sequential_dict)
+
+                for vertical in sequential['children']:
+                    vertical_type = guess_vertical_type(vertical)
+                    if vertical_type in ['knowledge_check_vertical', 'test_vertical']:
+                        exercise_dict = transform_vertical_to_exercise(vertical)
+                        sequential_dict['children'].append(exercise_dict)
+
+                    else:
+                        print('skipping', vertical_type, vertical['url_name'])
+
+    return course_dict
+
+
+# DEBUG TREE PRINTING
+################################################################################
+
+def print_transfomed_tree(transfomed_tree, translate_from=None):
+    """
+    Display transformed course tree for debugging purposes.
+    """
+    EXTRA_FIELDS = ['description', 'youtube_id', 'path', 'text']
+
+    def print_transfomed_subtree(subtree, indent=0):
+        title = subtree['title']
+        if translate_from:
+            title_en = translate_to_en(title, source_language=translate_from)
+            title = title_en  + ' ' + title
+        extra = ''
+        print('   '*indent, '-', title,  'kind='+subtree['kind'], '\t', extra)
+        if 'children' in subtree:
+            for child in subtree['children']:
+                print_transfomed_subtree(child, indent=indent+1)
+    print_transfomed_subtree(transfomed_tree)
+    print('\n')
 
 
 
@@ -480,8 +621,7 @@ class EdraakCoursesChef(JsonTreeChef):
         Build the hierarchy of topic nodes and content nodes.
         """
         LOGGER.info('Creating channel content nodes...')
-        
-        
+
         course_list = json.load(open(os.path.join(COURSES_DIR, 'course_list.json')))
         for course in course_list['courses']: # [1:2]:
             basedir = os.path.join(COURSES_DIR, course['name'])
@@ -492,7 +632,11 @@ class EdraakCoursesChef(JsonTreeChef):
             # print_course(course_data, translate_from='ar')
             clean_subtree(course_data, coursedir)
             write_tree_to_json_tree(os.path.join(CLEAN_TREES_DIR, course_id+'.json'), course_data)
-            print('\n\n\n')
+            transformed_tree = transform_tree(course_data, coursedir)
+            write_tree_to_json_tree(os.path.join(TRANSFORMED_TREES_DIR, course_id+'.json'), transformed_tree)
+            print_transfomed_tree(transformed_tree, translate_from='ar')
+            channel['children'].append(transformed_tree)
+            print('\n\n')
 
 
     def pre_run(self, args, options):
@@ -504,7 +648,7 @@ class EdraakCoursesChef(JsonTreeChef):
         ricecooker_json_tree = dict(
             title='Edraak Courses (العربيّة)',          # a humand-readbale title
             source_domain=EDRAAK_COURSES_DOMAIN,       # content provider's domain
-            source_id='courses',         # an alphanumeric channel ID
+            source_id='continuing-education-courses',  # an alphanumeric channel ID
             description=EDRAAK_COURSES_CHANNEL_DESCRIPTION,
             thumbnail='./chefdata/edraak-logo.png',   # logo created from SVG
             language=getlang('ar').code    ,          # language code of channel
@@ -533,3 +677,4 @@ if __name__ == '__main__':
     """
     chef = EdraakCoursesChef()
     chef.main()
+

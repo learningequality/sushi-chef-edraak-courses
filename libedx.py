@@ -8,7 +8,6 @@ from urllib.parse import unquote_plus
 
 
 
-
 # HIGH LEVEL API
 ################################################################################
 
@@ -57,7 +56,7 @@ def parse_xml_file(coursedir, kind, name, ext='xml'):
     # JSON data object
     data = {
         'kind': doc_root.name,
-        'id': name,
+        'url_name': name,
         'children': [],
     }
     data.update(doc_root.attrs)
@@ -244,10 +243,9 @@ def print_course(course, translate_from=None):
     
     def print_subtree(subtree, indent=0):
         title = subtree['display_name'] if 'display_name' in subtree else ''
-        
         if translate_from:
             title_en = translate_to_en(title, source_language=translate_from)
-            title = title_en # + ' ' + title
+            title = title_en  + ' ' + title
         extra = ''
         if 'url_name' in subtree and 'youtube_id' not in subtree and 'path' not in subtree: # and subtree['kind'] != 'html':
             extra += ' url_name=' + subtree['url_name']
