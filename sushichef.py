@@ -1,21 +1,17 @@
 #!/usr/bin/env python
 from bs4 import BeautifulSoup, Tag
-from bs4.element import NavigableString
 import copy
 from jinja2 import Template
 import json
 from html2text import html2text
 import os
-from PIL import Image
 import re
-import requests
 import tempfile
-from urllib.parse import urljoin
 
 
 
-from le_utils.constants import content_kinds, exercises, file_types, licenses, roles
-from le_utils.constants.languages import getlang  # see also getlang_by_name, getlang_by_alpha2
+from le_utils.constants import content_kinds, exercises, file_types, licenses
+from le_utils.constants.languages import getlang
 from ricecooker.chefs import JsonTreeChef
 from ricecooker.classes.licenses import get_license
 from ricecooker.utils.html_writer import HTMLWriter
@@ -125,19 +121,21 @@ def guess_vertical_type(vertical):
 
 
 def clean_subtree(subtree, coursedir):
+    
+
+    # pre-process certain nodes in order to annotate with extracted info
     kind = subtree['kind']
-    title = subtree['display_name'] if 'display_name' in subtree else ''
-    # print(kind, title, subtree.get('url_name', ''))
     if kind == 'video':
+        # extract youtube_id or path from a video node
         subtree = process_video(subtree)
     elif kind == 'html':
         # check if downloadable resources HTML div first
         resources = extract_downloadable_resouces_from_html_item(subtree, coursedir=coursedir)
         subtree['downloadable_resources'] = resources
         if not resources:
+            # extract plain text of HTML content (used for htmls that contain descriptions and learning objectives)
             text = extract_text_from_html_item(subtree, translate_from='ar')
             subtree['text'] = text
-
 
     # Filter children
     new_children = []
@@ -171,7 +169,7 @@ def clean_subtree(subtree, coursedir):
                     text = extract_text_from_html_item(htmlgrandchild, translate_from='ar')
                     subtree['description'] = text
                     if len(htmlgrandchildren) > 1:
-                        print('skipping', htmlgrandchildren[1:])
+                        LOGGER.debug('skipping ' + str(htmlgrandchildren[1:]))
                     continue
 
             # Recurse
@@ -251,9 +249,9 @@ def extract_downloadable_resouces_from_html_item(item, coursedir):
             if not os.path.exists(relhref):
                 relhref = relhref.replace('_', ' ')
                 if not os.path.exists(relhref):
-                    print('file not fount at relhref', relhref)
+                    LOGGER.warning('file not fount at relhref=' + relhref)
         else:
-            print('unknown href', href)
+            LOGGER.warning('unknown href=' + href + ' in html with url_name=' + item['url_name'])
         _, dotext = os.path.splitext(filename)
         ext = dotext[1:].lower()
         resource = dict(
@@ -277,9 +275,9 @@ def extract_downloadable_resouces_from_html_item(item, coursedir):
             if not os.path.exists(relhref):
                 relhref = relhref.replace('_', ' ')
                 if not os.path.exists(relhref):
-                    print('file not fount at relhref', relhref)
+                    LOGGER.warning('file not fount at relhref=' + relhref)
         else:
-            print('unknown href', href)
+            LOGGER.warning('unknown href=' + href + ' in html with url_name=' + item['url_name'])
 
         _, dotext = os.path.splitext(filename)
         ext = dotext[1:].lower()
@@ -304,7 +302,7 @@ def extract_text_from_html_item(item, translate_from=None):
         if img['src'] in EDRAAK_DROP_ICONS:
             img.decompose()
         else:
-            print('found image', img['src'])
+            LOGGER.warning('found non-ignored image with src=' + img['src'] + ' consider adding to EDRAAK_DROP_ICONS')
 
     page_text = html2text(str(body), bodywidth=0)
     page_text_lines = page_text.split('\n')
@@ -323,7 +321,6 @@ def extract_text_from_html_item(item, translate_from=None):
             line = line[1:]
         if line.endswith('_'):
             line = line[:-1]
-        #
         if line:
             clean_lines.append(line)
     text = ' '.join(clean_lines)
@@ -345,7 +342,7 @@ def extract_text_from_html_item(item, translate_from=None):
 ################################################################################
 
 DROP_EXPLANATIONS = [
-    'release of the iPod allowed consumers',
+    'release of the iPod allowed consumers',    # some solutinos had this boilerplate text in them
 ]
 
 
@@ -429,7 +426,7 @@ def parse_questions_from_problem(problem):
         questions.append(question_dict)
 
     if not questions:
-        print(problem)
+        LOGGER.error('problem=' + str(problem))
         raise ValueError('Parsing error -- no questoins found in this problem')
 
     problem['questions'] = questions
@@ -497,6 +494,7 @@ def transform_tree(clean_tree, coursedir):
     course_dict = dict(
         kind=content_kinds.TOPIC,
         title=course_title,
+        thumbnail=course_thumbnail,
         source_id=course_id,
         description='',
         language=getlang('ar').code,
@@ -521,7 +519,7 @@ def transform_tree(clean_tree, coursedir):
 
             # SPECIAL CASE: skip empty parent nodes of discussions
             if len(sequential['children']) == 0:
-                print('Skipping empty sequential', sequential)
+                LOGGER.debug('Skipping empty sequential ' + str(sequential))
                 continue
 
             # DEFAULT CASE: process as regular topic node
@@ -554,11 +552,11 @@ def transform_tree(clean_tree, coursedir):
                         sequential_dict['children'].extend(nodes)
                     chapter_downloadable_resources.extend(downloadable_resources)
                 else:
-                    print('skipping', vertical_type, vertical['url_name'])
+                    LOGGER.debug('skipping ' + vertical_type + ' url_name=' + vertical['url_name'])
 
         #
         if chapter_downloadable_resources: 
-            print('3. Packaging chapter_downloadable_resources')
+            LOGGER.debug('  Packaging chapter_downloadable_resources')
             source_id = chapter['url_name']+'-downloadable-resources'
             html5app_dict = dict(
                 kind=content_kinds.HTML5,
@@ -611,7 +609,7 @@ def make_html5zip_from_resources(downloadable_resources, basefilename):
             content += line
             relhrefs_seen.add(resource['relhref'])
         else:
-            print('skipping chapter-duplicate resource', resource)
+            LOGGER.debug('skipping chapter-duplicate resource ' + str(resource))
     content += '    </ul>'
 
     # save to zip file
@@ -644,7 +642,7 @@ def transform_html_vertical(vertical, parent_title=None):
     Returns: nodes, downloadable_resources
     """
     if 'children' not in vertical:
-        print('WARNING: found empty vertical', vertical)
+        LOGGER.warning('found empty vertical' + str(vertical))
         return [], []
 
     assert all(ch['kind'] == 'html' for ch in vertical['children']), 'non htmls found'
@@ -654,9 +652,8 @@ def transform_html_vertical(vertical, parent_title=None):
     htmls = [ch for ch in vertical['children'] if ch['kind'] == 'html']
     
     for html in htmls:
-        print('** processing html', html['url_name'])
         if 'downloadable_resources' in html and html['downloadable_resources']:
-            print('1- found downloadable_resources')
+            LOGGER.debug('    found downloadable_resources')
             resources = html['downloadable_resources']
             for resource in resources:
                 ext = resource['ext']
@@ -681,7 +678,7 @@ def transform_html_vertical(vertical, parent_title=None):
                     downloadable_resources.append(resource)
  
         else:
-            print('2- _packaging html content')
+            LOGGER.debug('    packaging html content')
             html5app_dict = dict(
                 kind=content_kinds.HTML5,
                 title=vertical['display_name'],
@@ -773,7 +770,7 @@ def transform_video_vertical(vertical, parent_title=None):
              ffmpeg_settings={"crf": 24},
         )
     else:
-        print('Video does not have youtube_id or path', video)
+        LOGGER.error('Video does not have youtube_id or path ' + str(video))
     video_dict['files'].append(file_dict)
 
     # 3. LOOK FOR AN OPTIONAL RESOURCES html
@@ -797,7 +794,8 @@ def flatten_transformed_tree(course_dict):
         new_children = []
         for child in course_dict['children']:
             grandchildren = child.get('children', None)
-            if grandchildren and len(grandchildren) == 1 and child['title'] == grandchildren[0]['title']:
+            # TODO: make this work with approximate matches
+            if grandchildren and len(grandchildren) == 1 and child['title'].strip() == grandchildren[0]['title'].strip():
                 new_children.append(grandchildren[0])
             else:
                 new_child = flatten_transformed_tree(child)
@@ -813,7 +811,6 @@ def print_transfomed_tree(transfomed_tree, translate_from=None):
     """
     Display transformed course tree for debugging purposes.
     """
-    EXTRA_FIELDS = ['description', 'youtube_id', 'path', 'text']
 
     def print_transfomed_subtree(subtree, indent=0):
         title = subtree['title']
@@ -860,7 +857,7 @@ class EdraakCoursesChef(JsonTreeChef):
             write_tree_to_json_tree(os.path.join(CLEAN_TREES_DIR, course_id+'.json'), course_data)
             transformed_tree = transform_tree(course_data, coursedir)
             write_tree_to_json_tree(os.path.join(TRANSFORMED_TREES_DIR, course_id+'.json'), transformed_tree)
-            # print_transfomed_tree(transformed_tree, translate_from='ar')
+            print_transfomed_tree(transformed_tree, translate_from='ar')
             channel['children'].append(transformed_tree)
             print('\n\n')
 
@@ -881,7 +878,6 @@ class EdraakCoursesChef(JsonTreeChef):
             children=[],
         )
         self.add_content_nodes(ricecooker_json_tree)
-        # self.add_sample_content_nodes(ricecooker_json_tree)
 
         json_tree_path = self.get_json_tree_path()
         write_tree_to_json_tree(json_tree_path, ricecooker_json_tree)
