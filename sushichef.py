@@ -464,7 +464,7 @@ def parse_questions_from_problem(problem):
 # TRANSFORM
 ################################################################################
 
-def transform_vertical_to_exercise(vertical, parent_title=None, istest=False):
+def transform_vertical_to_exercise(vertical, parent_title=None):
     """
     Parse an Edraaak `test_vertical' or `knowledge_check_vertical` to exercise.
     """
@@ -540,6 +540,7 @@ def transform_tree(clean_tree, coursedir):
             children=[],
         )
         course_dict['children'].append(chapter_dict)
+        chapter_downloadable_resources = []
 
         for sequential in chapter['children']:
 
@@ -565,13 +566,80 @@ def transform_tree(clean_tree, coursedir):
 
                 if vertical_type in ['knowledge_check_vertical', 'test_vertical']:
                     exercise_dict = transform_vertical_to_exercise(vertical)
-                    sequential_dict['children'].append(exercise_dict)
-
+                    if exercise_dict:
+                        sequential_dict['children'].append(exercise_dict)
+                elif vertical_type == 'video_vertical':
+                    video_dict, downloadable_resources = transform_video_vertical(vertical)
+                    if video_dict:
+                        sequential_dict['children'].append(video_dict)
+                    chapter_downloadable_resources.extend(downloadable_resources)
                 else:
                     print('skipping', vertical_type, vertical['url_name'])
 
+        #
+        print('Reached end of chapter. chapter_downloadable_resources=', chapter_downloadable_resources) 
+
     flattened_course_dict = flatten_transformed_tree(course_dict)
     return flattened_course_dict
+
+
+def transform_video_vertical(vertical,  parent_title=None):
+    if 'children' not in vertical:
+        return None, []
+
+    # 1. LOOK FOR AN OPTIONAL html PREFIX TO USE AS DESCRIPTION
+    description = ''
+    # Extract an optional description from the first html node
+    first_child = vertical['children'][0]
+    if first_child['kind'] == 'html':
+        description = extract_text_from_html_item(first_child, translate_from='ar')
+
+    if parent_title:
+        video_title = parent_title + ' ' + vertical['display_name']
+    else:
+        video_title = vertical['display_name']
+
+    # 2. GET THE VIDEO
+    videos = [ch for ch in vertical['children'] if ch['kind'] == 'video']
+    assert len(videos) == 1, 'multiple videos found'
+    video = videos[0]
+    video_dict = dict(
+        kind=content_kinds.VIDEO,
+        source_id=video.get('youtube_id') or video.get('path'),
+        title = video_title,
+        author = 'Edraak',
+        description=description,
+        language=getlang('ar').code,
+        license=EDRAAK_LICENSE,
+        files=[]
+    )
+    if 'youtube_id' in video:
+        file_dict = dict(
+             file_type=content_kinds.VIDEO,
+             youtube_id=video['youtube_id'],
+             language=getlang('ar').code,
+             high_resolution=False,
+        )
+    elif 'path' in video:
+        file_dict = dict(
+             file_type=content_kinds.VIDEO,
+             path=video['path'],
+             language=getlang('ar').code,
+             ffmpeg_settings={"crf": 24},
+        )
+    else:
+        print('Video does not have youtube_id or path', video)
+    video_dict['files'].append(file_dict)
+
+    # 3. LOOK FOR AN OPTIONAL RESOURCES html
+    downloadable_resources = []
+    htmls = [ch for ch in vertical['children'] if ch['kind'] == 'html']
+    for html in htmls:
+        if 'downloadable_resources' in html:
+            downloadable_resources.extend(html['downloadable_resources'])
+
+    return video_dict, downloadable_resources
+
 
 
 def flatten_transformed_tree(course_dict):
