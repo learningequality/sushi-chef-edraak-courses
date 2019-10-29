@@ -2,6 +2,7 @@
 from bs4 import BeautifulSoup, Tag
 from bs4.element import NavigableString
 import copy
+from jinja2 import Template
 import json
 from html2text import html2text
 import os
@@ -12,12 +13,15 @@ import tempfile
 from urllib.parse import urljoin
 
 
+
 from le_utils.constants import content_kinds, exercises, file_types, licenses, roles
 from le_utils.constants.languages import getlang  # see also getlang_by_name, getlang_by_alpha2
 from ricecooker.chefs import JsonTreeChef
 from ricecooker.classes.licenses import get_license
+from ricecooker.utils.html_writer import HTMLWriter
 from ricecooker.utils.jsontrees import write_tree_to_json_tree
 from ricecooker.utils.zip import create_predictable_zip
+
 
 from ricecooker.config import LOGGER
 import logging
@@ -56,6 +60,7 @@ EDRAAK_STRINGS = {
         'خطة المساق',       # could be a sequential with a PDF resouce or HTML
     ],
     'downloadable_resources': 'Downloadable Resources',  # TODO: find Arabic transaltion
+    'downloadable_resources_description': 'Contains various documents and resources you can download and use on your computer',
 }
 
 TITLES_TO_DROP = [
@@ -552,10 +557,83 @@ def transform_tree(clean_tree, coursedir):
                     print('skipping', vertical_type, vertical['url_name'])
 
         #
-        print('Reached end of chapter. chapter_downloadable_resources=', chapter_downloadable_resources) 
+        if chapter_downloadable_resources: 
+            print('3. Packaging chapter_downloadable_resources')
+            source_id = chapter['url_name']+'-downloadable-resources'
+            html5app_dict = dict(
+                kind=content_kinds.HTML5,
+                title=EDRAAK_STRINGS['downloadable_resources'],
+                description=EDRAAK_STRINGS['downloadable_resources_description'],
+                source_id=source_id,
+                license=EDRAAK_LICENSE,
+                language=getlang('ar').code,
+                files=[],
+            )
+            zip_path = make_html5zip_from_resources(chapter_downloadable_resources, basefilename=source_id)
+            zip_file = dict(
+                file_type=file_types.HTML5,
+                path=zip_path,
+                language=getlang('ar').code,
+            )
+            html5app_dict['files'].append(zip_file)
+            chapter_dict['children'].append(html5app_dict)
 
     flattened_course_dict = flatten_transformed_tree(course_dict)
     return flattened_course_dict
+
+
+
+HTML5APP_TEMPLATE = 'chefdata/downloadable_resources_template'
+
+def make_html5zip_from_resources(downloadable_resources, basefilename):
+    """
+    Note: we're assuming resouces are not PDFs, because don't render right.
+    """
+    chef_tmp_dir = 'chefdata/tmp'
+    zip_path = os.path.join(chef_tmp_dir, basefilename + '.zip')
+    if os.path.exists(zip_path):
+        os.remove(zip_path)
+    
+    # load template
+    template_path = os.path.join(HTML5APP_TEMPLATE, 'index.template.html')
+    template_src = open(template_path).read()
+    template = Template(template_src)
+
+    # prepare template context values
+    title = EDRAAK_STRINGS['downloadable_resources']
+    content = '    <ul>\n'
+    line_template = '      <li><a href="{localhref}">{title} ({ext})</a></li>\n'
+    relhrefs_seen = set()
+    for resource in downloadable_resources:
+        localhref = './' + resource['filename']
+        if resource['relhref'] not in relhrefs_seen:
+            line = line_template.format(localhref=localhref, title=resource['title'], ext=resource['ext'])
+            content += line
+            relhrefs_seen.add(resource['relhref'])
+        else:
+            print('skipping chapter-duplicate resource', resource)
+    content += '    </ul>'
+
+    # save to zip file
+    with HTMLWriter(zip_path, 'w') as zipper:
+        # index.html = render template to string
+        index_html = template.render(
+            title=title,
+            content=content,
+        )
+        zipper.write_index_contents(index_html)
+
+        # css/styles.css
+        with open(os.path.join(HTML5APP_TEMPLATE, 'css/styles.css')) as stylesf:
+            zipper.write_contents('styles.css', stylesf.read(), directory='css/')
+
+        # add files to zip
+        for resource in downloadable_resources:
+            filename = resource['filename']
+            srcpath = resource['relhref']
+            zipper.write_file(srcpath, filename=filename)
+
+    return zip_path
 
 
 def transform_html_vertical(vertical, parent_title=None):
@@ -578,7 +656,7 @@ def transform_html_vertical(vertical, parent_title=None):
     for html in htmls:
         print('** processing html', html['url_name'])
         if 'downloadable_resources' in html and html['downloadable_resources']:
-            print('>>> found downloadable_resources')
+            print('1- found downloadable_resources')
             resources = html['downloadable_resources']
             for resource in resources:
                 ext = resource['ext']
@@ -603,7 +681,7 @@ def transform_html_vertical(vertical, parent_title=None):
                     downloadable_resources.append(resource)
  
         else:
-            print('>>> new_packaging html content', html)
+            print('2- _packaging html content')
             html5app_dict = dict(
                 kind=content_kinds.HTML5,
                 title=vertical['display_name'],
