@@ -4,6 +4,10 @@ Jinja2>=2.10
 # Extract HTML part
 html2text>=2018.1.9
 
+# appox match for titles
+fuzzywuzzy==0.17.0
+
+
 
 # during dev
 google-cloud-translate

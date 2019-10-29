@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 from bs4 import BeautifulSoup, Tag
 import copy
+from fuzzywuzzy import fuzz
 from jinja2 import Template
 import json
 from html2text import html2text
@@ -783,6 +784,7 @@ def transform_video_vertical(vertical, parent_title=None):
     return video_dict, downloadable_resources
 
 
+FUZZY_MATCH_THRESHOLD = 92
 
 def flatten_transformed_tree(course_dict):
     """
@@ -794,8 +796,13 @@ def flatten_transformed_tree(course_dict):
         new_children = []
         for child in course_dict['children']:
             grandchildren = child.get('children', None)
-            # TODO: make this work with approximate matches
-            if grandchildren and len(grandchildren) == 1 and child['title'].strip() == grandchildren[0]['title'].strip():
+            same_title_as_first_grandchild = False
+            if grandchildren and len(grandchildren) == 1:
+                child_title = child['title'].strip()
+                grandchild_title = grandchildren[0]['title'].strip()
+                if fuzz.ratio(child_title, grandchild_title) >= FUZZY_MATCH_THRESHOLD:
+                    same_title_as_first_grandchild = True
+            if same_title_as_first_grandchild:
                 new_children.append(grandchildren[0])
             else:
                 new_child = flatten_transformed_tree(child)
