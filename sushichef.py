@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
 from bs4.element import NavigableString
 import copy
 import json
@@ -8,6 +8,7 @@ import os
 from PIL import Image
 import re
 import requests
+import tempfile
 from urllib.parse import urljoin
 
 
@@ -16,6 +17,7 @@ from le_utils.constants.languages import getlang  # see also getlang_by_name, ge
 from ricecooker.chefs import JsonTreeChef
 from ricecooker.classes.licenses import get_license
 from ricecooker.utils.jsontrees import write_tree_to_json_tree
+from ricecooker.utils.zip import create_predictable_zip
 
 from ricecooker.config import LOGGER
 import logging
@@ -52,7 +54,8 @@ EDRAAK_STRINGS = {
     ],
     "course_plan": [
         'خطة المساق',       # could be a sequential with a PDF resouce or HTML
-    ]
+    ],
+    'downloadable_resources': 'Downloadable Resources',  # TODO: find Arabic transaltion
 }
 
 TITLES_TO_DROP = [
@@ -329,39 +332,6 @@ def extract_text_from_html_item(item, translate_from=None):
 
 
 
-# def transform_html(content):
-#     """
-#     Transform the HTML markup taken from `content` (str) to file index.html in
-#     a standalone zip file. Return the neceesary metadata as a dict.
-#     """
-#     chef_tmp_dir = 'chefdata/tmp'
-#     webroot = tempfile.mkdtemp(dir=chef_tmp_dir)
-# 
-#     metadata = dict(
-#         kind = 'html_content',
-#         source_id = content[0:30],
-#         zippath = None,  # to be set below
-#     )
-# 
-#     doc = BeautifulSoup(content, 'html5lib')
-#     meta = Tag(name='meta', attrs={'charset':'utf-8'})
-#     doc.head.append(meta)
-#     # TODO: add meta language (in case of right-to-left languages)
-# 
-#     # Writeout new index.html
-#     indexhtmlpath = os.path.join(webroot, 'index.html')
-#     with open(indexhtmlpath, 'w') as indexfilewrite:
-#         indexfilewrite.write(str(doc))
-# 
-#     # Zip it
-#     zippath = create_predictable_zip(webroot)
-#     metadata['zippath'] = zippath
-# 
-#     return metadata
-
-
-
-
 
 
 
@@ -573,6 +543,11 @@ def transform_tree(clean_tree, coursedir):
                     if video_dict:
                         sequential_dict['children'].append(video_dict)
                     chapter_downloadable_resources.extend(downloadable_resources)
+                elif vertical_type == 'html_vertical':
+                    nodes, downloadable_resources = transform_html_vertical(vertical)
+                    if nodes:
+                        sequential_dict['children'].extend(nodes)
+                    chapter_downloadable_resources.extend(downloadable_resources)
                 else:
                     print('skipping', vertical_type, vertical['url_name'])
 
@@ -583,7 +558,99 @@ def transform_tree(clean_tree, coursedir):
     return flattened_course_dict
 
 
-def transform_video_vertical(vertical,  parent_title=None):
+def transform_html_vertical(vertical, parent_title=None):
+    """
+    Parses the `html` children of the vertical to generate document nodes from
+    linked pdfs, extract downloadable resources, or a standalone html5 app node
+    of the html content for all other cases.
+    Returns: nodes, downloadable_resources
+    """
+    if 'children' not in vertical:
+        print('WARNING: found empty vertical', vertical)
+        return [], []
+
+    assert all(ch['kind'] == 'html' for ch in vertical['children']), 'non htmls found'
+
+    nodes = []
+    downloadable_resources = []
+    htmls = [ch for ch in vertical['children'] if ch['kind'] == 'html']
+    
+    for html in htmls:
+        print('** processing html', html['url_name'])
+        if 'downloadable_resources' in html and html['downloadable_resources']:
+            print('>>> found downloadable_resources')
+            resources = html['downloadable_resources']
+            for resource in resources:
+                ext = resource['ext']
+                if ext == 'pdf':
+                    pdf_node = dict(
+                        kind=content_kinds.DOCUMENT,
+                        title=resource['title'],
+                        description=resource.get('description', ''),
+                        source_id=resource['relhref'],
+                        license=EDRAAK_LICENSE,
+                        language=getlang('ar').code,
+                        files=[],
+                    )
+                    file_dict = dict(
+                        file_type=file_types.DOCUMENT,
+                        path=resource['relhref'],
+                        language=getlang('ar').code,
+                    )
+                    pdf_node['files'].append(file_dict)
+                    nodes.append(pdf_node)
+                else:
+                    downloadable_resources.append(resource)
+ 
+        else:
+            print('>>> new_packaging html content', html)
+            html5app_dict = dict(
+                kind=content_kinds.HTML5,
+                title=vertical['display_name'],
+                # title=EDRAAK_STRINGS['downloadable_resources'],
+                description=html.get('description', ''),
+                source_id=html['url_name'],
+                license=EDRAAK_LICENSE,
+                language=getlang('ar').code,
+                files=[],
+            )
+            zip_path = package_html_content_as_html5_zip_file(html)
+            zip_file = dict(
+                file_type=file_types.HTML5,
+                path=zip_path,
+                language=getlang('ar').code,
+            )
+            html5app_dict['files'].append(zip_file)
+            nodes.append(html5app_dict)
+        #
+        return nodes, downloadable_resources
+
+
+def package_html_content_as_html5_zip_file(html):
+    """
+    Transform the HTML markup in `html["content"]` (str) to file index.html in
+    a standalone zip file. Return the neceesary metadata as a dict.
+    """
+    chef_tmp_dir = 'chefdata/tmp'
+    webroot = tempfile.mkdtemp(dir=chef_tmp_dir)
+    content = html['content']
+    doc = BeautifulSoup(content, 'html5lib')
+    meta = Tag(name='meta', attrs={'charset':'utf-8'})
+    doc.head.append(meta)
+    # TODO: add meta language (in case of right-to-left languages)
+
+    # Writeout new index.html
+    indexhtmlpath = os.path.join(webroot, 'index.html')
+    with open(indexhtmlpath, 'w') as indexfilewrite:
+        indexfilewrite.write(str(doc))
+
+    # Zip it
+    zippath = create_predictable_zip(webroot)
+    return zippath
+
+
+
+def transform_video_vertical(vertical, parent_title=None):
     if 'children' not in vertical:
         return None, []
 
@@ -711,10 +778,11 @@ class EdraakCoursesChef(JsonTreeChef):
             write_tree_to_json_tree(os.path.join(ORIGINAL_TREES_DIR, course_id+'.json'), course_data)
             # print_course(course_data, translate_from='ar')
             clean_subtree(course_data, coursedir)
+            print('Cleaned course', course_data['course'], '#'*80)
             write_tree_to_json_tree(os.path.join(CLEAN_TREES_DIR, course_id+'.json'), course_data)
             transformed_tree = transform_tree(course_data, coursedir)
             write_tree_to_json_tree(os.path.join(TRANSFORMED_TREES_DIR, course_id+'.json'), transformed_tree)
-            print_transfomed_tree(transformed_tree, translate_from='ar')
+            # print_transfomed_tree(transformed_tree, translate_from='ar')
             channel['children'].append(transformed_tree)
             print('\n\n')
 
