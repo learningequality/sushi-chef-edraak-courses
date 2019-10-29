@@ -492,6 +492,10 @@ def transform_tree(clean_tree, coursedir):
     course_id = clean_tree['course']
     course_title = clean_tree['display_name']
     course_thumbnail = os.path.join(coursedir, 'static', clean_tree['course_image'])
+    if not os.path.exists(course_thumbnail):
+        course_image_with_spaces = clean_tree['course_image'].replace('_', ' ')
+        course_thumbnail = os.path.join(coursedir, 'static', course_image_with_spaces)
+
     course_dict = dict(
         kind=content_kinds.TOPIC,
         title=course_title,
