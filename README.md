@@ -11,6 +11,7 @@ Sushi Chef script for importing edraak-courses content from https://www.edraak.o
 
 ## Run
 
+    export GOOGLE_APPLICATION_CREDENTIALS='credentials/client_secret.json'
     ./sushichef.py  -v --reset --thumbnails --compress --token=<yourstudiotoken>
 
 

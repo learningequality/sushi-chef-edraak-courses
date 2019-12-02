@@ -28,7 +28,7 @@ LOGGER.setLevel(logging.INFO)
 from libedx import extract_course_tree
 from libedx import translate_to_en
 
-DEBUG_MODE = True
+DEBUG_MODE = False
 
 
 
