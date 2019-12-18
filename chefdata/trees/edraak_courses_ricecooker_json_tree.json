@@ -2,7 +2,7 @@
   "title": "Edraak Courses (العربيّة)",
   "source_domain": "edraak.org",
   "source_id": "continuing-education-courses",
-  "description": "Sample courses from the Edraak contrinuing education selection.",
+  "description": "إدراك للتعليم المستمر هي مبادرة من مؤسسة الملكة رانيا تعنى بالمواضيع غير الأكاديمية وذات صلة بالمهارات الحياتية. تغطي التدريبات المقترحة مواضيع متنوعة تتضّمن الصحّة والتغذية والإدارة المالية الشخصية، مهارات مقابلات العمل، الإسعافات الأولية والتواصل عبر شبكة الانترنيت. كما أنها تتناسب ومتطلبات المتعلّمين الكبار الذين يبحثون عن وسائل لتطوير مهاراتهم الإحترافية وإغناء معلوماتهم العملية.",
   "thumbnail": "./chefdata/edraak-logo.png",
   "language": "ar",
   "children": [
@@ -704,8 +704,8 @@
             },
             {
               "kind": "html5",
-              "title": "Downloadable Resources",
-              "description": "Contains various documents and resources you can download and use on your computer",
+              "title": "المواد القابلة للتحميل",
+              "description": "تحتوي على ملفات وموارد متعدّدة يمكنك أن تحمّلها على جهاز الحاسوب لديك لاستعمالها والإستفادة منها",
               "source_id": "c8f601bdb43f4496965fa14703a2971b-downloadable-resources",
               "license": {
                 "license_id": "CC BY-NC-SA",
@@ -716,7 +716,7 @@
               "files": [
                 {
                   "file_type": "html5",
-                  "path": "chefdata/tmp/c8f601bdb43f4496965fa14703a2971b-downloadable-resources.zip",
+                  "path": "chefdata/tmp/c8f601bdb43f4496965fa14703a2971b-downloadable-resources2.zip",
                   "language": "ar"
                 }
               ]
@@ -1238,8 +1238,8 @@
             },
             {
               "kind": "html5",
-              "title": "Downloadable Resources",
-              "description": "Contains various documents and resources you can download and use on your computer",
+              "title": "المواد القابلة للتحميل",
+              "description": "تحتوي على ملفات وموارد متعدّدة يمكنك أن تحمّلها على جهاز الحاسوب لديك لاستعمالها والإستفادة منها",
               "source_id": "a4ade97ead7f43dfaac051ca566a9c8e-downloadable-resources",
               "license": {
                 "license_id": "CC BY-NC-SA",
@@ -1250,7 +1250,7 @@
               "files": [
                 {
                   "file_type": "html5",
-                  "path": "chefdata/tmp/a4ade97ead7f43dfaac051ca566a9c8e-downloadable-resources.zip",
+                  "path": "chefdata/tmp/a4ade97ead7f43dfaac051ca566a9c8e-downloadable-resources2.zip",
                   "language": "ar"
                 }
               ]
@@ -1715,8 +1715,8 @@
             },
             {
               "kind": "html5",
-              "title": "Downloadable Resources",
-              "description": "Contains various documents and resources you can download and use on your computer",
+              "title": "المواد القابلة للتحميل",
+              "description": "تحتوي على ملفات وموارد متعدّدة يمكنك أن تحمّلها على جهاز الحاسوب لديك لاستعمالها والإستفادة منها",
               "source_id": "7ed138c6d69c431281e6b9bb2372d0cb-downloadable-resources",
               "license": {
                 "license_id": "CC BY-NC-SA",
@@ -1727,7 +1727,7 @@
               "files": [
                 {
                   "file_type": "html5",
-                  "path": "chefdata/tmp/7ed138c6d69c431281e6b9bb2372d0cb-downloadable-resources.zip",
+                  "path": "chefdata/tmp/7ed138c6d69c431281e6b9bb2372d0cb-downloadable-resources2.zip",
                   "language": "ar"
                 }
               ]
@@ -2296,8 +2296,8 @@
             },
             {
               "kind": "html5",
-              "title": "Downloadable Resources",
-              "description": "Contains various documents and resources you can download and use on your computer",
+              "title": "المواد القابلة للتحميل",
+              "description": "تحتوي على ملفات وموارد متعدّدة يمكنك أن تحمّلها على جهاز الحاسوب لديك لاستعمالها والإستفادة منها",
               "source_id": "165e843bb41e45439acdfac3b233d31a-downloadable-resources",
               "license": {
                 "license_id": "CC BY-NC-SA",
@@ -2308,7 +2308,7 @@
               "files": [
                 {
                   "file_type": "html5",
-                  "path": "chefdata/tmp/165e843bb41e45439acdfac3b233d31a-downloadable-resources.zip",
+                  "path": "chefdata/tmp/165e843bb41e45439acdfac3b233d31a-downloadable-resources2.zip",
                   "language": "ar"
                 }
               ]
@@ -7072,7 +7072,7 @@
               "files": [
                 {
                   "file_type": "html5",
-                  "path": "/var/folders/wc/2r44j8gs4gn56t1xtw5f6wlm0000gn/T/tmp6_ayh6h_.zip",
+                  "path": "/var/folders/wc/2r44j8gs4gn56t1xtw5f6wlm0000gn/T/tmpdtstnmjx.zip",
                   "language": "ar"
                 }
               ]

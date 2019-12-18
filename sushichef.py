@@ -36,7 +36,7 @@ DEBUG_MODE = False
 # EDRAAK CONSTANTS
 ################################################################################
 EDRAAK_COURSES_DOMAIN = 'edraak.org'
-EDRAAK_COURSES_CHANNEL_DESCRIPTION = """Sample courses from the Edraak contrinuing education selection."""
+EDRAAK_COURSES_CHANNEL_DESCRIPTION = """إدراك للتعليم المستمر هي مبادرة من مؤسسة الملكة رانيا تعنى بالمواضيع غير الأكاديمية وذات صلة بالمهارات الحياتية. تغطي التدريبات المقترحة مواضيع متنوعة تتضّمن الصحّة والتغذية والإدارة المالية الشخصية، مهارات مقابلات العمل، الإسعافات الأولية والتواصل عبر شبكة الانترنيت. كما أنها تتناسب ومتطلبات المتعلّمين الكبار الذين يبحثون عن وسائل لتطوير مهاراتهم الإحترافية وإغناء معلوماتهم العملية."""
 EDRAAK_LICENSE = get_license(licenses.CC_BY_NC_SA, copyright_holder='Edraak').as_dict()
 
 ORIGINAL_TREES_DIR = os.path.join('chefdata', 'originaltrees')
@@ -56,8 +56,8 @@ EDRAAK_STRINGS = {
     "course_plan": [
         'خطة المساق',       # could be a sequential with a PDF resouce or HTML
     ],
-    'downloadable_resources': 'Downloadable Resources',  # TODO: find Arabic transaltion
-    'downloadable_resources_description': 'Contains various documents and resources you can download and use on your computer',
+    'downloadable_resources': 'المواد القابلة للتحميل',  # TODO: find Arabic transaltion
+    'downloadable_resources_description': 'تحتوي على ملفات وموارد متعدّدة يمكنك أن تحمّلها على جهاز الحاسوب لديك لاستعمالها والإستفادة منها',
 }
 
 TITLES_TO_DROP = [
@@ -572,7 +572,7 @@ def transform_tree(clean_tree, coursedir):
                 language=getlang('ar').code,
                 files=[],
             )
-            zip_path = make_html5zip_from_resources(chapter_downloadable_resources, basefilename=source_id)
+            zip_path = make_html5zip_from_resources(chapter_downloadable_resources, basefilename=source_id+'2')
             zip_file = dict(
                 file_type=file_types.HTML5,
                 path=zip_path,
